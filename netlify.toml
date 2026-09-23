@@ -1,0 +1,12 @@
+[build]
+  # Los precios se regeneran en cada deploy, así el sitio siempre publica datos frescos
+  command = "npm run data && npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[[headers]]
+  for = "/data/*"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"

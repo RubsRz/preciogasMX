@@ -1,0 +1,15 @@
+# Vuelve a publicar el sitio cada mañana para que los precios estén al día.
+# Requiere el secret NETLIFY_BUILD_HOOK (Netlify > Site configuration > Build hooks).
+name: Actualizar precios
+
+on:
+  schedule:
+    - cron: "0 13 * * *" # 7:00 en CDMX
+  workflow_dispatch:
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lanzar deploy en Netlify
+        run: curl -fsSL -X POST -d '{}' "${{ secrets.NETLIFY_BUILD_HOOK }}"
