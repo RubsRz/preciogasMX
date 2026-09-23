@@ -745,11 +745,32 @@ ul {
     }
 
     .app[data-sheet="half"] .panel {
-        height: 46svh;
+        height: 42svh;
+    }
+
+    /* A media altura se priorizan las estaciones: filtros y resumen se compactan */
+    .app[data-sheet="half"] .filters {
+        display: none;
+    }
+
+    .app[data-sheet="half"] .controls {
+        padding: 10px 16px;
+    }
+
+    .app[data-sheet="half"] .summary div {
+        padding: 8px 16px;
+    }
+
+    .app[data-sheet="half"] .summary dd {
+        font-size: 0.95rem;
+    }
+
+    .app[data-sheet="tall"] .panel {
+        height: 64svh;
     }
 
     .app[data-sheet="full"] .panel {
-        height: 86svh;
+        height: 88svh;
     }
 
     .sheet-handle {
@@ -794,6 +815,52 @@ ul {
     .route-panel {
         padding-bottom: 32px;
     }
+}
+
+.about {
+    position: absolute;
+    inset: 0;
+    z-index: 900;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.55);
+}
+
+.about-card {
+    display: grid;
+    gap: 12px;
+    max-width: 420px;
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    font-size: 0.9rem;
+    color: var(--muted);
+}
+
+.about-card h2 {
+    color: var(--text);
+    font-size: 1.05rem;
+}
+
+.about-card a {
+    color: var(--accent);
+}
+
+.about-card b {
+    color: var(--text);
+}
+
+.about-card button {
+    justify-self: end;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+    font-size: 0.85rem;
 }
 
 /* Selector de combustible flotante, para cambiar sin abrir el panel */

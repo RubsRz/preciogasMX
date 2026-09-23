@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const SNAPS = { peek: 0.16, half: 0.46, full: 0.86 }; // fracción de la altura de pantalla
+const SNAPS = { peek: 0.16, half: 0.42, tall: 0.64, full: 0.88 }; // fracción de la altura de pantalla
 
 /**
  * Hoja deslizable de celular: se puede arrastrar con el dedo y se queda en la
@@ -40,8 +40,9 @@ export function useSheet(initial = "peek") {
         setDragHeight(null);
 
         if (!moved) {
-            // Un toque simple alterna entre abierta y cerrada
-            setSnap((current) => (current === "peek" ? "half" : "peek"));
+            // Un toque simple va subiendo de altura y, desde arriba, cierra
+            const order = Object.keys(SNAPS);
+            setSnap((current) => order[(order.indexOf(current) + 1) % order.length]);
             return;
         }
         // Se queda en el punto más cercano a donde se soltó

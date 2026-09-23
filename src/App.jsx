@@ -37,6 +37,7 @@ export default function App() {
     const spoken = useRef({ stepIndex: -1, phase: null });
     const offRouteCount = useRef(0);
     const [theme, setTheme] = useState(() => localStorage.getItem("theme") ?? "dark");
+    const [about, setAbout] = useState(false);
 
     useEffect(() => {
         document.documentElement.dataset.theme = theme;
@@ -237,6 +238,14 @@ export default function App() {
                     <button
                         type="button"
                         className="icon-btn"
+                        onClick={() => setAbout(true)}
+                        aria-label="De dónde salen los datos"
+                    >
+                        ⓘ
+                    </button>
+                    <button
+                        type="button"
+                        className="icon-btn"
                         onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
                         aria-label="Cambiar tema"
                     >
@@ -244,6 +253,31 @@ export default function App() {
                     </button>
                 </div>
             </header>
+
+            {about && data && (
+                <div className="about" role="dialog" aria-modal="true" onClick={() => setAbout(false)}>
+                    <div className="about-card" onClick={(event) => event.stopPropagation()}>
+                        <h2>De dónde salen los datos</h2>
+                        <p>
+                            <b>{data.stations.length.toLocaleString("es-MX")} estaciones</b> con precios publicados por
+                            la <b>Comisión Reguladora de Energía</b>, actualizados el {formatDate(data.updatedAt)}.
+                        </p>
+                        <p>
+                            Promedio nacional: regular <b>{money(data.national.regular)}</b> · premium{" "}
+                            <b>{money(data.national.premium)}</b> · diésel <b>{money(data.national.diesel)}</b>.
+                        </p>
+                        <p>
+                            Las marcas (Pemex, Oxxo Gas, Mobil…) vienen de{" "}
+                            <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">
+                                OpenStreetMap
+                            </a>
+                            , igual que el mapa y las rutas. Cuando no se conoce la marca se muestra la razón social.
+                        </p>
+                        <p>Los precios son los que cada estación reporta, así que pueden variar con los de la bomba.</p>
+                        <button type="button" onClick={() => setAbout(false)}>Entendido</button>
+                    </div>
+                </div>
+            )}
 
             <div className="main">
                 <section className="panel" style={sheet.style}>
@@ -258,7 +292,7 @@ export default function App() {
                             {navigating && nav
                                 ? `Faltan ${km(nav.remainingMeters / 1000)}`
                                 : sheet.snap !== "peek"
-                                  ? "Arrastra para cerrar"
+                                  ? "Arrastra para ajustar"
                                   : routeTo
                                     ? "Ver la ruta"
                                     : `${listed.length} estaciones · desde ${stats ? money(stats.min) : "…"}`}
@@ -336,14 +370,6 @@ export default function App() {
                         />
                     )}
 
-                    {data && !routeTo && (
-                        <p className="footer-note">
-                            {data.stations.length.toLocaleString("es-MX")} estaciones · {fuelLabel} promedio nacional{" "}
-                            {money(nationalAverage)} · datos de la{" "}
-                            <abbr title="Comisión Reguladora de Energía">CRE</abbr>, actualizados el{" "}
-                            {formatDate(data.updatedAt)} · marcas de OpenStreetMap
-                        </p>
-                    )}
                 </section>
 
                 <div className="map-wrap">
