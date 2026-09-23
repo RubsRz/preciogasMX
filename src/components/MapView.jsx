@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { CircleMarker, MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
+import { CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
 import { TIER_COLORS, km, money, priceTier } from "../lib/stations";
 
@@ -12,12 +12,28 @@ function Recenter({ center, zoom }) {
     return null;
 }
 
-/** En celular el mapa vive escondido detrás del panel: al mostrarlo hay que remedirlo. */
+/** En celular el panel tapa parte del mapa: al cambiar de tamaño hay que remedirlo. */
 function ResizeOnShow({ active }) {
     const map = useMap();
     useEffect(() => {
-        if (active) map.invalidateSize();
+        map.invalidateSize();
     }, [active, map]);
+    return null;
+}
+
+/** Al trazar una ruta, encuadra el mapa para que se vea completa. */
+function FitRoute({ path }) {
+    const map = useMap();
+    useEffect(() => {
+        if (!path?.length) return;
+        // En celular el panel tapa la parte de abajo del mapa, así que se deja más margen
+        const isPhone = window.matchMedia("(max-width: 900px)").matches;
+        map.fitBounds(path, {
+            paddingTopLeft: [40, 60],
+            paddingBottomRight: [40, isPhone ? 220 : 60],
+            maxZoom: 15,
+        });
+    }, [path, map]);
     return null;
 }
 
@@ -28,7 +44,7 @@ const youAreHere = L.divIcon({
     iconAnchor: [8, 8],
 });
 
-export default function MapView({ center, stations, fuel, average, selectedId, onSelect, showMarker, active }) {
+export default function MapView({ center, stations, fuel, average, selectedId, onSelect, onRoute, showMarker, active, route, routeStation }) {
     return (
         <MapContainer center={[center.lat, center.lon]} zoom={12} scrollWheelZoom zoomControl={false} preferCanvas>
             <TileLayer
@@ -36,12 +52,20 @@ export default function MapView({ center, stations, fuel, average, selectedId, o
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
                 maxZoom={19}
             />
-            <Recenter center={center} zoom={12} />
+            {!routeStation && <Recenter center={center} zoom={12} />}
+            <FitRoute path={route?.path} />
             <ResizeOnShow active={active} />
 
             {showMarker && <Marker position={[center.lat, center.lon]} icon={youAreHere} />}
 
-            {stations.map((station) => {
+            {route?.path && (
+                <Polyline
+                    positions={route.path}
+                    pathOptions={{ color: "#3b82f6", weight: 6, opacity: 0.85, dashArray: route.approx ? "10 8" : null }}
+                />
+            )}
+
+            {(routeStation ? [routeStation] : stations).map((station) => {
                 const price = station.prices[fuel];
                 const tier = priceTier(price, average);
                 const isSelected = station.id === selectedId;
@@ -49,7 +73,7 @@ export default function MapView({ center, stations, fuel, average, selectedId, o
                     <CircleMarker
                         key={station.id}
                         center={[station.lat, station.lon]}
-                        radius={isSelected ? 11 : 7}
+                        radius={routeStation ? 12 : isSelected ? 11 : 7}
                         pathOptions={{
                             color: isSelected ? "#fff" : TIER_COLORS[tier],
                             weight: isSelected ? 3 : 1.5,
@@ -65,15 +89,12 @@ export default function MapView({ center, stations, fuel, average, selectedId, o
                                 {station.prices.premium && <span>Premium <b>{money(station.prices.premium)}</b></span>}
                                 {station.prices.diesel && <span>Diésel <b>{money(station.prices.diesel)}</b></span>}
                             </div>
-                            {station.distance != null && <div>A {km(station.distance)} de ti</div>}
-                            <a
-                                className="popup-link"
-                                href={`https://www.google.com/maps/dir/?api=1&destination=${station.lat},${station.lon}`}
-                                target="_blank"
-                                rel="noopener"
-                            >
-                                Cómo llegar →
-                            </a>
+                            {station.distance != null && <div>A {km(station.distance)} en línea recta</div>}
+                            {!routeStation && (
+                                <button type="button" className="popup-link" onClick={() => onRoute(station)}>
+                                    Trazar ruta →
+                                </button>
+                            )}
                         </Popup>
                     </CircleMarker>
                 );

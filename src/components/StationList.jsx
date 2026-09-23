@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { km, money, priceTier } from "../lib/stations";
 
-export default function StationList({ stations, fuel, average, selectedId, onSelect }) {
+export default function StationList({ stations, fuel, average, selectedId, onSelect, onRoute }) {
     const listRef = useRef(null);
 
     // Si la selección viene del mapa, se hace scroll a esa tarjeta
@@ -30,12 +30,15 @@ export default function StationList({ stations, fuel, average, selectedId, onSel
                         <button
                             type="button"
                             data-id={station.id}
-                            className={`station ${station.id === selectedId ? "is-active" : ""} ${index === 0 ? "is-best" : ""}`}
+                            className={`station ${station.id === selectedId ? "is-active" : ""} ${station.recommended ? "is-best" : ""}`}
                             onClick={() => onSelect(station.id)}
                         >
-                            <span className="station-rank">{index + 1}</span>
+                            <span className={`station-rank ${station.recommended ? "is-star" : ""}`}>
+                                {station.recommended ? "★" : index + 1}
+                            </span>
                             <span className="station-body">
                                 <span className="station-name">{station.name}</span>
+                                {station.recommended && <span className="station-badge">Recomendada</span>}
                                 <span className="station-meta">
                                     <span>{km(station.distance)}</span>
                                     {station.state && <span>· {station.state}</span>}
@@ -49,6 +52,24 @@ export default function StationList({ stations, fuel, average, selectedId, onSel
                             <span className="station-price">
                                 <strong className={`price-${tier}`}>{money(price)}</strong>
                                 <small>por litro</small>
+                                <span
+                                    role="button"
+                                    tabIndex={0}
+                                    className="station-route"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onRoute(station);
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter" || e.key === " ") {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            onRoute(station);
+                                        }
+                                    }}
+                                >
+                                    Ruta →
+                                </span>
                             </span>
                         </button>
                     </li>

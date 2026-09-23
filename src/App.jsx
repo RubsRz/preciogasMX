@@ -2,11 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import Controls from "./components/Controls";
 import MapView from "./components/MapView";
 import StationList from "./components/StationList";
+import RoutePanel from "./components/RoutePanel";
+import { getRoute } from "./lib/route";
 import { FUELS, distanceKm, formatDate, km, loadStations, money } from "./lib/stations";
 
 // Si el navegador no da ubicación, se arranca en el Centro Histórico de la CDMX
 const DEFAULT_CENTER = { lat: 19.4326, lon: -99.1332, label: "Ciudad de México" };
 const TANK_LITERS = 50; // para calcular el ahorro por tanque
+const KM_PER_LITER = 12; // rendimiento típico, para saber cuánto cuesta ir por la gasolina
 
 export default function App() {
     const [data, setData] = useState(null);
@@ -18,7 +21,10 @@ export default function App() {
     const [radius, setRadius] = useState(10);
     const [sort, setSort] = useState("price");
     const [selectedId, setSelectedId] = useState(null);
-    const [view, setView] = useState("list"); // solo aplica en celular
+    const [sheetOpen, setSheetOpen] = useState(false); // panel deslizable, solo en celular
+    const [routeTo, setRouteTo] = useState(null); // estación a la que se trazó ruta
+    const [route, setRoute] = useState(null);
+    const [routeLoading, setRouteLoading] = useState(false);
     const [theme, setTheme] = useState(() => localStorage.getItem("theme") ?? "dark");
 
     useEffect(() => {
@@ -27,7 +33,9 @@ export default function App() {
     }, [theme]);
 
     useEffect(() => {
-        loadStations().then(setData).catch((e) => setError(e.message));
+        loadStations()
+            .then(setData)
+            .catch((e) => setError(e.message));
         locate(); // se pide la ubicación al entrar; si la niegan, se queda la CDMX
     }, []);
 
@@ -45,6 +53,24 @@ export default function App() {
         );
     }
 
+    // Al elegir una estación se pide la ruta en coche; al salir, se limpia
+    useEffect(() => {
+        if (!routeTo) return setRoute(null);
+        const controller = new AbortController();
+        setRouteLoading(true);
+        getRoute(center, routeTo, controller.signal)
+            .then(setRoute)
+            .catch(() => {})
+            .finally(() => setRouteLoading(false));
+        return () => controller.abort();
+    }, [routeTo, center]);
+
+    function startRoute(station) {
+        setRouteTo(station);
+        setSelectedId(station.id);
+        setSheetOpen(false); // en celular, deja ver el mapa
+    }
+
     // Estaciones dentro del radio, con distancia y precio del combustible elegido
     const nearby = useMemo(() => {
         if (!data) return [];
@@ -57,6 +83,30 @@ export default function App() {
             )
             .slice(0, 120);
     }, [data, center, fuel, radius, sort]);
+
+    /**
+     * La "recomendada" balancea precio y distancia: al precio por litro se le suma lo que
+     * cuesta la gasolina de ir y volver, repartida entre los litros que cargas.
+     */
+    const recommendedId = useMemo(() => {
+        if (!nearby.length) return null;
+        let best = null;
+        let bestScore = Infinity;
+        for (const station of nearby) {
+            const price = station.prices[fuel];
+            const score = price + ((2 * station.distance) / KM_PER_LITER) * (price / TANK_LITERS);
+            if (score < bestScore) {
+                bestScore = score;
+                best = station;
+            }
+        }
+        return best?.id ?? null;
+    }, [nearby, fuel]);
+
+    const listed = useMemo(
+        () => nearby.map((station) => ({ ...station, recommended: station.id === recommendedId })),
+        [nearby, recommendedId],
+    );
 
     const stats = useMemo(() => {
         if (!nearby.length) return null;
@@ -72,10 +122,12 @@ export default function App() {
     const fuelLabel = FUELS.find((item) => item.id === fuel).label.toLowerCase();
 
     return (
-        <div className="app" data-view={view}>
+        <div className="app" data-sheet={sheetOpen ? "open" : "peek"}>
             <header className="header">
                 <p className="logo">
-                    <span className="logo-mark" aria-hidden="true">⛽</span>
+                    <span className="logo-mark" aria-hidden="true">
+                        ⛽
+                    </span>
                     Precio<span>Gas</span> MX
                 </p>
                 <div className="header-actions">
@@ -92,22 +144,39 @@ export default function App() {
 
             <div className="main">
                 <section className="panel">
-                    <Controls
-                        fuel={fuel}
-                        onFuel={setFuel}
-                        radius={radius}
-                        onRadius={setRadius}
-                        sort={sort}
-                        onSort={setSort}
-                        onPlace={(place) => {
-                            setCenter(place);
-                            setIsMyLocation(false);
-                        }}
-                        onLocate={locate}
-                        locating={locating}
-                    />
+                    <button
+                        type="button"
+                        className="sheet-handle"
+                        onClick={() => setSheetOpen((open) => !open)}
+                        aria-expanded={sheetOpen}
+                    >
+                        <span className="sheet-grip" aria-hidden="true" />
+                        <span className="sheet-label">
+                            {routeTo
+                                ? "Ruta"
+                                : sheetOpen
+                                  ? "Ver el mapa"
+                                  : `${listed.length} estaciones · desde ${stats ? money(stats.min) : "…"}`}
+                        </span>
+                    </button>
+                    {!routeTo && (
+                        <Controls
+                            fuel={fuel}
+                            onFuel={setFuel}
+                            radius={radius}
+                            onRadius={setRadius}
+                            sort={sort}
+                            onSort={setSort}
+                            onPlace={(place) => {
+                                setCenter(place);
+                                setIsMyLocation(false);
+                            }}
+                            onLocate={locate}
+                            locating={locating}
+                        />
+                    )}
 
-                    {stats && (
+                    {stats && !routeTo && (
                         <>
                             <dl className="summary">
                                 <div>
@@ -125,32 +194,45 @@ export default function App() {
                             </dl>
                             {stats.saving >= 5 && (
                                 <p className="savings">
-                                    Ahorras hasta {money(stats.saving)} por tanque de {TANK_LITERS} L si cargas en la más
-                                    barata ({km(stats.cheapest.distance)} de distancia).
+                                    Ahorras hasta {money(stats.saving)} por tanque de {TANK_LITERS} L si cargas en la
+                                    más barata ({km(stats.cheapest.distance)} de distancia).
                                 </p>
                             )}
                         </>
                     )}
 
-                    {error && <div className="empty"><span aria-hidden="true">⚠️</span><p>{error}</p></div>}
+                    {error && !routeTo && (
+                        <div className="empty">
+                            <span aria-hidden="true">⚠️</span>
+                            <p>{error}</p>
+                        </div>
+                    )}
                     {!data && !error && <p className="loading">Cargando precios oficiales…</p>}
-                    {data && (
+                    {data && !routeTo && (
                         <StationList
-                            stations={nearby}
+                            stations={listed}
                             fuel={fuel}
                             average={nationalAverage}
                             selectedId={selectedId}
-                            onSelect={(id) => {
-                                setSelectedId(id);
-                                setView("map");
-                            }}
+                            onSelect={setSelectedId}
+                            onRoute={startRoute}
                         />
                     )}
 
-                    {data && (
+                    {routeTo && (
+                        <RoutePanel
+                            station={routeTo}
+                            route={route}
+                            fuel={fuel}
+                            loading={routeLoading}
+                            onExit={() => setRouteTo(null)}
+                        />
+                    )}
+
+                    {data && !routeTo && (
                         <p className="footer-note">
-                            {data.stations.length.toLocaleString("es-MX")} estaciones · precios de {fuelLabel} publicados
-                            por la <abbr title="Comisión Reguladora de Energía">CRE</abbr> · actualizado el{" "}
+                            {data.stations.length.toLocaleString("es-MX")} estaciones · precios de {fuelLabel}{" "}
+                            publicados por la <abbr title="Comisión Reguladora de Energía">CRE</abbr> · actualizado el{" "}
                             {formatDate(data.updatedAt)}
                         </p>
                     )}
@@ -160,31 +242,36 @@ export default function App() {
                     {data && (
                         <MapView
                             center={center}
-                            stations={nearby}
+                            stations={listed}
                             fuel={fuel}
                             average={nationalAverage}
                             selectedId={selectedId}
                             onSelect={setSelectedId}
+                            onRoute={startRoute}
                             showMarker={isMyLocation}
-                            active={view === "map"}
+                            active={sheetOpen}
+                            route={route}
+                            routeStation={routeTo}
                         />
                     )}
-                    <div className="map-legend">
-                        <span><i style={{ background: "var(--cheap)" }} />Debajo del promedio</span>
-                        <span><i style={{ background: "var(--mid)" }} />En el promedio</span>
-                        <span><i style={{ background: "var(--expensive)" }} />Arriba del promedio</span>
-                    </div>
+                    {!routeTo && (
+                        <div className="map-legend">
+                            <span>
+                                <i style={{ background: "var(--cheap)" }} />
+                                Debajo del promedio
+                            </span>
+                            <span>
+                                <i style={{ background: "var(--mid)" }} />
+                                En el promedio
+                            </span>
+                            <span>
+                                <i style={{ background: "var(--expensive)" }} />
+                                Arriba del promedio
+                            </span>
+                        </div>
+                    )}
                 </div>
             </div>
-
-            <nav className="mobile-tabs">
-                <button type="button" className={view === "list" ? "is-active" : ""} onClick={() => setView("list")}>
-                    Lista
-                </button>
-                <button type="button" className={view === "map" ? "is-active" : ""} onClick={() => setView("map")}>
-                    Mapa
-                </button>
-            </nav>
         </div>
     );
 }

@@ -154,6 +154,9 @@ ul {
 
 .map-wrap {
     position: relative;
+    /* z-index propio: si no, los paneles internos de Leaflet (z-index 400+) quedarían
+       encima del panel y bloquearían los toques en celular */
+    z-index: 0;
     min-height: 0;
     min-width: 0;
 }
@@ -354,9 +357,44 @@ ul {
     font-weight: 700;
 }
 
-.station.is-best .station-rank {
+.station.is-best .station-rank,
+.station-rank.is-star {
     background: var(--accent-soft);
     color: var(--accent);
+}
+
+.station-rank.is-star {
+    font-size: 0.9rem;
+}
+
+.station-badge {
+    display: inline-block;
+    margin-top: 2px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.station-route {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--accent);
+    font-size: 0.75rem;
+    font-weight: 600;
+    transition: border-color 0.2s, background-color 0.2s;
+}
+
+.station-route:hover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
 }
 
 .station-body {
@@ -424,6 +462,124 @@ ul {
     color: var(--expensive);
 }
 
+.route-panel {
+    display: grid;
+    align-content: start;
+    gap: 16px;
+    padding: 16px;
+    overflow-y: auto;
+}
+
+.route-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.route-label {
+    color: var(--muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.route-name {
+    font-size: 1.15rem;
+    line-height: 1.25;
+}
+
+.route-head .icon-btn {
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.route-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--border);
+    overflow: hidden;
+}
+
+.route-stats div {
+    padding: 10px 12px;
+    background: var(--surface);
+}
+
+.route-stats dt {
+    color: var(--muted);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.route-stats dd {
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
+.route-stats .is-cheap {
+    color: var(--accent);
+}
+
+.route-note {
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 0.8rem;
+}
+
+.route-detail {
+    display: grid;
+    gap: 8px;
+    font-size: 0.9rem;
+    color: var(--muted);
+}
+
+.route-detail b {
+    color: var(--text);
+}
+
+.route-prices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    font-size: 0.82rem;
+}
+
+.route-actions {
+    display: grid;
+    gap: 8px;
+}
+
+.route-actions .btn-primary,
+.route-actions .btn-ghost {
+    display: block;
+    padding: 12px;
+    border-radius: var(--radius-sm);
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-decoration: none;
+}
+
+.route-actions .btn-primary {
+    background: var(--accent);
+    color: #fff;
+}
+
+.route-actions .btn-ghost {
+    border: 1px solid var(--border);
+    color: var(--text);
+}
+
+.route-actions .btn-ghost:hover {
+    border-color: var(--muted);
+}
+
 .empty,
 .loading {
     display: grid;
@@ -481,6 +637,7 @@ ul {
 .popup-link {
     color: var(--accent);
     font-weight: 600;
+    font-size: 0.85rem;
 }
 
 .map-legend {
@@ -518,13 +675,14 @@ ul {
     color: var(--muted);
 }
 
-/* ===================== Responsive ===================== */
-.mobile-tabs {
+/* ===================== Panel deslizable (celular) ===================== */
+.sheet-handle {
     display: none;
 }
 
 @media (max-width: 900px) {
     .main {
+        position: relative;
         grid-template-columns: 1fr;
         grid-template-rows: 1fr;
     }
@@ -534,43 +692,55 @@ ul {
         grid-area: 1 / 1;
     }
 
+    /* El panel se vuelve una hoja que sube y baja sobre el mapa */
     .panel {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 10;
+        height: 86svh;
         border-right: 0;
-    }
-
-    .app[data-view="map"] .panel {
-        display: none;
-    }
-
-    /* El mapa nunca se oculta con display:none, porque Leaflet necesita medir su
-       contenedor. Se esconde detrás del panel manteniendo su tamaño. */
-    .app[data-view="list"] .map-wrap {
-        visibility: hidden;
-    }
-
-    .mobile-tabs {
-        display: flex;
-        gap: 4px;
-        padding: 6px;
         border-top: 1px solid var(--border);
-        background: var(--surface);
+        border-radius: 18px 18px 0 0;
+        box-shadow: 0 -10px 30px -12px rgba(0, 0, 0, 0.5);
+        transform: translateY(calc(86svh - var(--peek, 168px)));
+        transition: transform 0.3s cubic-bezier(0.3, 0.8, 0.3, 1);
     }
 
-    .mobile-tabs button {
-        flex: 1;
-        padding: 10px;
-        border-radius: var(--radius-sm);
+    .app[data-sheet="open"] .panel {
+        transform: translateY(0);
+    }
+
+    .sheet-handle {
+        display: grid;
+        justify-items: center;
+        gap: 6px;
+        padding: 10px 16px 8px;
         color: var(--muted);
+        font-size: 0.85rem;
         font-weight: 600;
-        font-size: 0.9rem;
     }
 
-    .mobile-tabs button.is-active {
-        background: var(--accent-soft);
-        color: var(--accent);
+    .sheet-grip {
+        width: 40px;
+        height: 4px;
+        border-radius: 999px;
+        background: var(--border);
+    }
+
+    .map-legend {
+        left: auto;
+        right: 12px;
+        bottom: auto;
+        top: 12px;
     }
 
     .summary dd {
         font-size: 1rem;
+    }
+
+    .route-panel {
+        padding-bottom: 32px;
     }
 }
