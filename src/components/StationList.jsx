@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { km, money, priceTier } from "../lib/stations";
+import { BRAND_COLORS, km, money, priceTier } from "../lib/stations";
 
 export default function StationList({ stations, fuel, average, selectedId, onSelect, onRoute }) {
     const listRef = useRef(null);
@@ -37,7 +37,17 @@ export default function StationList({ stations, fuel, average, selectedId, onSel
                                 {station.recommended ? "★" : index + 1}
                             </span>
                             <span className="station-body">
-                                <span className="station-name">{station.name}</span>
+                                <span className="station-name">
+                                    {station.brand && (
+                                        <span
+                                            className="brand-dot"
+                                            style={{ background: BRAND_COLORS[station.brand] ?? "var(--muted)" }}
+                                            aria-hidden="true"
+                                        />
+                                    )}
+                                    {station.brand ?? station.name}
+                                </span>
+                                {station.brand && <span className="station-legal">{station.name}</span>}
                                 {station.recommended && <span className="station-badge">Recomendada</span>}
                                 <span className="station-meta">
                                     <span>{km(station.distance)}</span>

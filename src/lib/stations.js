@@ -4,6 +4,30 @@ export const FUELS = [
     { id: "diesel", label: "Diésel", short: "Dsl" },
 ];
 
+// Colores aproximados de cada marca, para el distintivo de la lista
+export const BRAND_COLORS = {
+    Pemex: "#00723f",
+    "Oxxo Gas": "#e11b22",
+    Mobil: "#0b4ea2",
+    BP: "#009900",
+    Shell: "#d4a017",
+    G500: "#e4002b",
+    Chevron: "#1a4f9c",
+    Arco: "#0a3d91",
+    Repsol: "#ff6600",
+    TotalEnergies: "#e2001a",
+    "Petro Seven": "#e87722",
+    Hidrosina: "#e4002b",
+    Gulf: "#f68b1f",
+    Valero: "#0a5c36",
+    Orsan: "#c8102e",
+    Redco: "#d21e2b",
+    "La Gas": "#00a0df",
+    Rendichicas: "#ef3e42",
+    FullGas: "#f7941e",
+    Exxon: "#e31837",
+};
+
 /**
  * Convierte el JSON compacto (arreglos) en objetos y lo deja listo para usar.
  * El archivo lo genera scripts/build-data.mjs con los datos abiertos de la CRE.
@@ -13,12 +37,13 @@ export async function loadStations() {
     if (!response.ok) throw new Error("No se pudieron cargar los precios");
     const data = await response.json();
 
-    const stations = data.stations.map(([id, lat, lon, name, state, regular, premium, diesel]) => ({
+    const stations = data.stations.map(([id, lat, lon, name, state, regular, premium, diesel, brand]) => ({
         id,
         lat,
         lon,
         name,
         state: data.states[state]?.name ?? null,
+        brand: data.brands?.[brand] ?? null,
         prices: { regular: regular || null, premium: premium || null, diesel: diesel || null },
     }));
 

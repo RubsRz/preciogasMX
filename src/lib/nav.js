@@ -54,12 +54,31 @@ export function distancePhrase(meters) {
     return `En ${(meters / 1000).toFixed(1)} km`;
 }
 
-/** Lee la instrucción en voz alta (si el navegador puede). */
-export function speak(text) {
+/** Lee la instrucción en voz alta con la voz elegida (si el navegador puede). */
+export function speak(text, voiceURI) {
     if (!("speechSynthesis" in window) || !text) return;
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "es-MX";
     utterance.rate = 1.05;
+    const voice = speechSynthesis.getVoices().find((item) => item.voiceURI === voiceURI);
+    if (voice) utterance.voice = voice;
     speechSynthesis.cancel();
     speechSynthesis.speak(utterance);
+}
+
+/** Voces en español que tenga instaladas el dispositivo. */
+export function spanishVoices() {
+    if (!("speechSynthesis" in window)) return [];
+    return speechSynthesis.getVoices().filter((voice) => voice.lang.toLowerCase().startsWith("es"));
+}
+
+/** Rumbo en grados (0 = norte) entre dos posiciones. */
+export function bearingBetween(from, to) {
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const dLon = toRad(to.lon - from.lon);
+    const y = Math.sin(dLon) * Math.cos(toRad(to.lat));
+    const x =
+        Math.cos(toRad(from.lat)) * Math.sin(toRad(to.lat)) -
+        Math.sin(toRad(from.lat)) * Math.cos(toRad(to.lat)) * Math.cos(dLon);
+    return (((Math.atan2(y, x) * 180) / Math.PI) + 360) % 360;
 }

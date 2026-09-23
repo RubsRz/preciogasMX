@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { FUELS } from "../lib/stations";
 import { searchPlaces } from "../lib/geocode";
 
 const RADII = [3, 5, 10, 25, 50];
 
-export default function Controls({ fuel, onFuel, radius, onRadius, sort, onSort, onPlace, onLocate, locating }) {
+export default function Controls({ radius, onRadius, sort, onSort, onPlace, onLocate, locating }) {
     const [query, setQuery] = useState("");
     const [results, setResults] = useState([]);
     const box = useRef(null);
@@ -68,19 +67,6 @@ export default function Controls({ fuel, onFuel, radius, onRadius, sort, onSort,
                         ))}
                     </ul>
                 )}
-            </div>
-
-            <div className="segmented" role="group" aria-label="Tipo de combustible">
-                {FUELS.map((item) => (
-                    <button
-                        key={item.id}
-                        type="button"
-                        className={item.id === fuel ? "is-active" : ""}
-                        onClick={() => onFuel(item.id)}
-                    >
-                        {item.label}
-                    </button>
-                ))}
             </div>
 
             <div className="filters">

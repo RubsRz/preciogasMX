@@ -17,6 +17,117 @@ const FEEDS = {
     states: "https://raw.githubusercontent.com/strotgen/mexico-leaflet/master/states.geojson",
 };
 
+// La CRE no publica la marca (solo la razón social), así que se toma de OpenStreetMap
+const OVERPASS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+];
+const OVERPASS_QUERY = `[out:json][timeout:600];(node["amenity"="fuel"](14.3,-118.5,32.8,-86.5);way["amenity"="fuel"](14.3,-118.5,32.8,-86.5););out tags center;`;
+const USER_AGENT = "preciogas-mx/1.0 (proyecto de portafolio)";
+
+// Nombres como vienen en OSM -> marca normalizada
+const BRAND_ALIASES = [
+    [/pemex/i, "Pemex"],
+    [/oxxo/i, "Oxxo Gas"],
+    [/mobil/i, "Mobil"],
+    [/shell/i, "Shell"],
+    [/\bbp\b|british petroleum/i, "BP"],
+    [/repsol/i, "Repsol"],
+    [/chevron/i, "Chevron"],
+    [/total/i, "TotalEnergies"],
+    [/\barco\b/i, "Arco"],
+    [/g\s?500/i, "G500"],
+    [/petro\s?-?\s?(7|seven)/i, "Petro Seven"],
+    [/hidrosina/i, "Hidrosina"],
+    [/rendichicas/i, "Rendichicas"],
+    [/la\s?gas/i, "La Gas"],
+    [/full\s?gas/i, "FullGas"],
+    [/gulf/i, "Gulf"],
+    [/valero/i, "Valero"],
+    [/orsan/i, "Orsan"],
+    [/redco/i, "Redco"],
+    [/exxon/i, "Exxon"],
+];
+
+function normalizeBrand(raw) {
+    if (!raw) return null;
+    for (const [pattern, brand] of BRAND_ALIASES) if (pattern.test(raw)) return brand;
+    return null;
+}
+
+async function fetchBrands() {
+    const file = path.join(CACHE, "osm-fuel.json");
+    const clean = (points) =>
+        points
+            .map((point) => ({ ...point, brand: normalizeBrand(point.brand) }))
+            .filter((point) => point.lat && point.brand);
+
+    if (useCache && existsSync(file)) return clean(JSON.parse(await readFile(file, "utf8")));
+
+    for (const base of OVERPASS) {
+        try {
+            const response = await fetch(`${base}?data=${encodeURIComponent(OVERPASS_QUERY)}`, {
+                headers: { "User-Agent": USER_AGENT },
+            });
+            const text = await response.text();
+            if (!text.trimStart().startsWith("{")) continue; // límite de uso: probar otro espejo
+            const points = clean(
+                JSON.parse(text).elements.map((element) => ({
+                    lat: element.lat ?? element.center?.lat,
+                    lon: element.lon ?? element.center?.lon,
+                    brand: element.tags.brand || element.tags.operator || element.tags.name,
+                })),
+            );
+            await mkdir(CACHE, { recursive: true });
+            await writeFile(file, JSON.stringify(points));
+            return points;
+        } catch {
+            // probar el siguiente espejo
+        }
+    }
+    console.warn("! No se pudo consultar OpenStreetMap: las estaciones quedarán sin marca");
+    return [];
+}
+
+/** Índice por celdas de ~0.02° para cruzar 13 mil estaciones sin comparar todo contra todo. */
+function brandIndex(points) {
+    const grid = new Map();
+    for (const point of points) {
+        const key = `${Math.round(point.lat * 50)},${Math.round(point.lon * 50)}`;
+        if (!grid.has(key)) grid.set(key, []);
+        grid.get(key).push(point);
+    }
+    return grid;
+}
+
+function findBrand(lat, lon, grid) {
+    let best = null;
+    let bestDistance = 150; // metros
+    for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+            const cell = grid.get(`${Math.round(lat * 50) + dy},${Math.round(lon * 50) + dx}`) ?? [];
+            for (const point of cell) {
+                const distance = metersBetween(lat, lon, point.lat, point.lon);
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    best = point.brand;
+                }
+            }
+        }
+    }
+    return best;
+}
+
+function metersBetween(aLat, aLon, bLat, bLon) {
+    const R = 6371e3;
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const dLat = toRad(bLat - aLat);
+    const dLon = toRad(bLon - aLon);
+    const h = Math.sin(dLat / 2) ** 2 + Math.sin(dLon / 2) ** 2 * Math.cos(toRad(aLat)) * Math.cos(toRad(bLat));
+    return 2 * R * Math.asin(Math.sqrt(h));
+}
+
 const ROOT = path.resolve(import.meta.dirname, "..");
 const CACHE = path.join(ROOT, ".cache");
 const OUT = path.join(ROOT, "public", "data", "stations.json");
@@ -130,6 +241,15 @@ const statesRaw = await (async () => {
     return text;
 })();
 
+const osmBrands = await fetchBrands();
+const brandGrid = brandIndex(osmBrands);
+const brands = [];
+const brandId = (name) => {
+    if (!name) return -1;
+    const index = brands.indexOf(name);
+    return index === -1 ? brands.push(name) - 1 : index;
+};
+
 const places = parsePlaces(placesXml);
 const prices = parsePrices(pricesXml);
 const states = buildStateIndex(JSON.parse(statesRaw));
@@ -144,6 +264,8 @@ for (const [id, place] of places) {
     if (!fuels) continue;
 
     const stateIndex = findState(place.lon, place.lat, states);
+    // La marca sale de OSM y, si no, del nombre comercial de la razón social
+    const brand = findBrand(place.lat, place.lon, brandGrid) ?? normalizeBrand(place.name);
     const row = [
         Number(id),
         Math.round(place.lat * 1e5) / 1e5,
@@ -151,6 +273,7 @@ for (const [id, place] of places) {
         place.name,
         stateIndex,
         ...FUELS.map((fuel) => fuels[fuel] ?? 0),
+        brandId(brand),
     ];
     stations.push(row);
 
@@ -170,7 +293,8 @@ const average = (pair) => (pair[1] ? Math.round((pair[0] / pair[1]) * 100) / 100
 const data = {
     updatedAt: new Date().toISOString(),
     source: "Comisión Reguladora de Energía (datos abiertos)",
-    fields: ["id", "lat", "lon", "name", "state", ...FUELS],
+    fields: ["id", "lat", "lon", "name", "state", ...FUELS, "brand"],
+    brands,
     national: Object.fromEntries(FUELS.map((fuel) => [fuel, average(sums[fuel])])),
     states: states.map((state, i) => ({
         name: state.name,
@@ -187,3 +311,5 @@ const size = (await readFile(OUT)).length;
 console.log(`✓ ${stations.length.toLocaleString("es-MX")} estaciones · ${(size / 1024 / 1024).toFixed(2)} MB`);
 console.log(`  Promedio nacional: regular $${data.national.regular} · premium $${data.national.premium} · diésel $${data.national.diesel}`);
 console.log(`  Sin estado asignado: ${stations.filter((s) => s[4] === -1).length}`);
+const withBrand = stations.filter((s) => s[8] !== -1).length;
+console.log(`  Con marca: ${withBrand} (${((withBrand / stations.length) * 100).toFixed(1)}%) · ${brands.length} marcas`);

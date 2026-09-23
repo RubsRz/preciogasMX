@@ -4,7 +4,7 @@ import { minutes } from "../lib/route";
 const TANK_LITERS = 50;
 
 /** Tarjeta que reemplaza a la lista mientras se ve una ruta. */
-export default function RoutePanel({ station, route, fuel, loading, navigating, nav, arrived, onStart, onStop, onExit }) {
+export default function RoutePanel({ station, route, fuel, loading, navigating, nav, arrived, voices, voice, onVoice, onStart, onStop, onExit }) {
     const price = station.prices[fuel];
     const canNavigate = "geolocation" in navigator && route?.steps?.length > 0;
     // Mientras navegas, la distancia y el tiempo se recalculan con lo que falta
@@ -16,7 +16,8 @@ export default function RoutePanel({ station, route, fuel, loading, navigating, 
             <div className="route-head">
                 <div>
                     <p className="route-label">Ruta hacia</p>
-                    <h2 className="route-name">{station.name}</h2>
+                    <h2 className="route-name">{station.brand ?? station.name}</h2>
+                    {station.brand && <p className="route-legal">{station.name}</p>}
                 </div>
                 <button type="button" className="icon-btn" onClick={onExit} aria-label="Salir de la ruta">✕</button>
             </div>
@@ -72,6 +73,19 @@ export default function RoutePanel({ station, route, fuel, loading, navigating, 
                     Abrir en Google Maps
                 </a>
             </div>
+
+            {voices.length > 1 && (
+                <label className="voice-picker">
+                    <span>Voz de las indicaciones</span>
+                    <select value={voice ?? ""} onChange={(event) => onVoice(event.target.value)}>
+                        {voices.map((item) => (
+                            <option key={item.voiceURI} value={item.voiceURI}>
+                                {item.name.replace(/\(.*\)/, "").trim()} · {item.lang}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            )}
 
             {navigating && route?.steps?.length > 0 && (
                 <ol className="route-steps">

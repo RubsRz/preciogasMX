@@ -5,7 +5,8 @@ import StationList from "./components/StationList";
 import RoutePanel from "./components/RoutePanel";
 import NavBanner from "./components/NavBanner";
 import { getRoute } from "./lib/route";
-import { currentStep, distancePhrase, locateOnRoute, speak } from "./lib/nav";
+import { bearingBetween, currentStep, distancePhrase, locateOnRoute, speak, spanishVoices } from "./lib/nav";
+import { useSheet } from "./hooks/useSheet";
 import { FUELS, distanceKm, formatDate, km, loadStations, money } from "./lib/stations";
 
 // Si el navegador no da ubicación, se arranca en el Centro Histórico de la CDMX
@@ -23,13 +24,16 @@ export default function App() {
     const [radius, setRadius] = useState(10);
     const [sort, setSort] = useState("price");
     const [selectedId, setSelectedId] = useState(null);
-    const [sheetOpen, setSheetOpen] = useState(false); // panel deslizable, solo en celular
+    const sheet = useSheet("peek"); // hoja deslizable, solo en celular
     const [routeTo, setRouteTo] = useState(null); // estación a la que se trazó ruta
     const [route, setRoute] = useState(null);
     const [routeLoading, setRouteLoading] = useState(false);
     const [navigating, setNavigating] = useState(false);
     const [livePosition, setLivePosition] = useState(null);
     const [muted, setMuted] = useState(false);
+    const [heading, setHeading] = useState(null); // hacia dónde apunta la flecha
+    const [voices, setVoices] = useState([]);
+    const [voice, setVoice] = useState(() => localStorage.getItem("voice") ?? null);
     const spoken = useRef({ stepIndex: -1, phase: null });
     const offRouteCount = useRef(0);
     const [theme, setTheme] = useState(() => localStorage.getItem("theme") ?? "dark");
@@ -72,11 +76,37 @@ export default function App() {
         return () => controller.abort();
     }, [routeTo, center]);
 
-    // Mientras navegas, el GPS actualiza la posición varias veces por segundo
+    // Las voces del sistema llegan en diferido en algunos navegadores
+    useEffect(() => {
+        const load = () => {
+            const list = spanishVoices();
+            setVoices(list);
+            setVoice((current) => current ?? list.find((item) => item.lang === "es-MX")?.voiceURI ?? list[0]?.voiceURI ?? null);
+        };
+        load();
+        speechSynthesis?.addEventListener?.("voiceschanged", load);
+        return () => speechSynthesis?.removeEventListener?.("voiceschanged", load);
+    }, []);
+
+    useEffect(() => {
+        if (voice) localStorage.setItem("voice", voice);
+    }, [voice]);
+
+    // Mientras navegas, el GPS actualiza la posición y el rumbo varias veces por segundo
     useEffect(() => {
         if (!navigating || !navigator.geolocation) return;
         const id = navigator.geolocation.watchPosition(
-            ({ coords }) => setLivePosition({ lat: coords.latitude, lon: coords.longitude }),
+            ({ coords }) => {
+                const next = { lat: coords.latitude, lon: coords.longitude };
+                setLivePosition((previous) => {
+                    // El GPS da el rumbo solo si vas en movimiento; si no, se calcula
+                    if (coords.heading != null && !Number.isNaN(coords.heading)) setHeading(coords.heading);
+                    else if (previous && (previous.lat !== next.lat || previous.lon !== next.lon)) {
+                        setHeading(bearingBetween(previous, next));
+                    }
+                    return next;
+                });
+            },
             () => {},
             { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 },
         );
@@ -102,12 +132,12 @@ export default function App() {
         if (spoken.current.stepIndex === stepIndex && spoken.current.phase === phase) return;
         if (spoken.current.stepIndex === stepIndex && spoken.current.phase === "now") return;
         spoken.current = { stepIndex, phase };
-        speak(phase === "now" ? nav.next.instruction : `${distancePhrase(nav.metersToNext)}, ${nav.next.instruction}`);
-    }, [nav, muted, arrived, route]);
+        speak(phase === "now" ? nav.next.instruction : `${distancePhrase(nav.metersToNext)}, ${nav.next.instruction}`, voice);
+    }, [nav, muted, arrived, route, voice]);
 
     useEffect(() => {
-        if (arrived && !muted) speak("Llegaste a tu destino");
-    }, [arrived, muted]);
+        if (arrived && !muted) speak("Llegaste a tu destino", voice);
+    }, [arrived, muted, voice]);
 
     // Si te sales de la ruta, se recalcula desde donde estás
     useEffect(() => {
@@ -128,6 +158,7 @@ export default function App() {
     function stopNavigation() {
         setNavigating(false);
         setLivePosition(null);
+        setHeading(null);
         spoken.current = { stepIndex: -1, phase: null };
         if ("speechSynthesis" in window) speechSynthesis.cancel();
     }
@@ -135,7 +166,7 @@ export default function App() {
     function startRoute(station) {
         setRouteTo(station);
         setSelectedId(station.id);
-        setSheetOpen(true); // en celular, muestra la tarjeta de la ruta
+        sheet.setSnap("half"); // en celular, muestra la tarjeta de la ruta
     }
 
     function exitRoute() {
@@ -194,7 +225,7 @@ export default function App() {
     const fuelLabel = FUELS.find((item) => item.id === fuel).label.toLowerCase();
 
     return (
-        <div className="app" data-sheet={sheetOpen ? "open" : "peek"}>
+        <div className="app" data-sheet={sheet.snap}>
             <header className="header">
                 <p className="logo">
                     <span className="logo-mark" aria-hidden="true">
@@ -215,30 +246,26 @@ export default function App() {
             </header>
 
             <div className="main">
-                <section className="panel">
+                <section className="panel" style={sheet.style}>
                     <button
                         type="button"
                         className="sheet-handle"
-                        onClick={() => setSheetOpen((open) => !open)}
-                        aria-expanded={sheetOpen}
+                        aria-expanded={sheet.snap !== "peek"}
+                        {...sheet.handlers}
                     >
                         <span className="sheet-grip" aria-hidden="true" />
                         <span className="sheet-label">
                             {navigating && nav
-                                ? `Faltan ${km(nav.remainingMeters / 1000)} · ver los pasos`
-                                : routeTo
-                                  ? sheetOpen
-                                      ? "Ver el mapa"
-                                      : "Ver la ruta"
-                                  : sheetOpen
-                                    ? "Ver el mapa"
+                                ? `Faltan ${km(nav.remainingMeters / 1000)}`
+                                : sheet.snap !== "peek"
+                                  ? "Arrastra para cerrar"
+                                  : routeTo
+                                    ? "Ver la ruta"
                                     : `${listed.length} estaciones · desde ${stats ? money(stats.min) : "…"}`}
                         </span>
                     </button>
                     {!routeTo && (
                         <Controls
-                            fuel={fuel}
-                            onFuel={setFuel}
                             radius={radius}
                             onRadius={setRadius}
                             sort={sort}
@@ -256,24 +283,14 @@ export default function App() {
                         <>
                             <dl className="summary">
                                 <div>
-                                    <dt>Más barata</dt>
+                                    <dt>Más barata cerca</dt>
                                     <dd className="is-cheap">{money(stats.min)}</dd>
                                 </div>
                                 <div>
-                                    <dt>Promedio aquí</dt>
-                                    <dd>{money(stats.zoneAverage)}</dd>
-                                </div>
-                                <div>
-                                    <dt>Promedio nacional</dt>
-                                    <dd>{money(nationalAverage)}</dd>
+                                    <dt>Ahorro por tanque</dt>
+                                    <dd>{stats.saving >= 1 ? `hasta ${money(stats.saving)}` : "—"}</dd>
                                 </div>
                             </dl>
-                            {stats.saving >= 5 && (
-                                <p className="savings">
-                                    Ahorras hasta {money(stats.saving)} por tanque de {TANK_LITERS} L si cargas en la
-                                    más barata ({km(stats.cheapest.distance)} de distancia).
-                                </p>
-                            )}
                         </>
                     )}
 
@@ -304,9 +321,15 @@ export default function App() {
                             navigating={navigating}
                             nav={nav}
                             arrived={arrived}
+                            voices={voices}
+                            voice={voice}
+                            onVoice={(value) => {
+                                setVoice(value);
+                                speak("Así se van a escuchar las indicaciones", value);
+                            }}
                             onStart={() => {
                                 setNavigating(true);
-                                setSheetOpen(false); // al arrancar, el mapa manda
+                                sheet.setSnap("peek"); // al arrancar, el mapa manda
                             }}
                             onStop={stopNavigation}
                             onExit={exitRoute}
@@ -315,14 +338,29 @@ export default function App() {
 
                     {data && !routeTo && (
                         <p className="footer-note">
-                            {data.stations.length.toLocaleString("es-MX")} estaciones · precios de {fuelLabel}{" "}
-                            publicados por la <abbr title="Comisión Reguladora de Energía">CRE</abbr> · actualizado el{" "}
-                            {formatDate(data.updatedAt)}
+                            {data.stations.length.toLocaleString("es-MX")} estaciones · {fuelLabel} promedio nacional{" "}
+                            {money(nationalAverage)} · datos de la{" "}
+                            <abbr title="Comisión Reguladora de Energía">CRE</abbr>, actualizados el{" "}
+                            {formatDate(data.updatedAt)} · marcas de OpenStreetMap
                         </p>
                     )}
                 </section>
 
                 <div className="map-wrap">
+                    {!navigating && (
+                        <div className="map-fuel segmented" role="group" aria-label="Tipo de combustible">
+                            {FUELS.map((item) => (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    className={item.id === fuel ? "is-active" : ""}
+                                    onClick={() => setFuel(item.id)}
+                                >
+                                    {item.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                     {navigating && (
                         <NavBanner
                             nav={nav}
@@ -342,11 +380,12 @@ export default function App() {
                             onSelect={setSelectedId}
                             onRoute={startRoute}
                             showMarker={isMyLocation}
-                            active={sheetOpen}
+                            active={sheet.snap}
                             route={route}
                             routeStation={routeTo}
                             livePosition={livePosition}
                             navigating={navigating}
+                            heading={heading}
                         />
                     )}
                     {!routeTo && (

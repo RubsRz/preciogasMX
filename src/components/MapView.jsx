@@ -54,7 +54,22 @@ const youAreHere = L.divIcon({
     iconAnchor: [8, 8],
 });
 
-export default function MapView({ center, stations, fuel, average, selectedId, onSelect, onRoute, showMarker, active, route, routeStation, livePosition, navigating }) {
+/** Durante la navegación: flecha que apunta hacia donde avanzas, con su cono de visión. */
+const headingIcon = (heading) =>
+    L.divIcon({
+        className: "",
+        html: `<div class="nav-arrow" style="transform: rotate(${heading ?? 0}deg)">
+                 <span class="nav-arrow-cone"></span>
+                 <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true">
+                   <circle cx="12" cy="12" r="11" fill="#fff"/>
+                   <path d="M12 3.5 19 20 12 16 5 20z" fill="#3b82f6"/>
+                 </svg>
+               </div>`,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
+    });
+
+export default function MapView({ center, stations, fuel, average, selectedId, onSelect, onRoute, showMarker, active, route, routeStation, livePosition, navigating, heading }) {
     return (
         <MapContainer center={[center.lat, center.lon]} zoom={12} scrollWheelZoom zoomControl={false} preferCanvas>
             <TileLayer
@@ -70,7 +85,7 @@ export default function MapView({ center, stations, fuel, average, selectedId, o
             {(livePosition || showMarker) && (
                 <Marker
                     position={livePosition ? [livePosition.lat, livePosition.lon] : [center.lat, center.lon]}
-                    icon={youAreHere}
+                    icon={navigating && livePosition ? headingIcon(heading) : youAreHere}
                 />
             )}
 
@@ -99,7 +114,8 @@ export default function MapView({ center, stations, fuel, average, selectedId, o
                         eventHandlers={{ click: () => onSelect(station.id) }}
                     >
                         <Popup>
-                            <p className="popup-name">{station.name}</p>
+                            <p className="popup-name">{station.brand ?? station.name}</p>
+                            {station.brand && <p className="popup-legal">{station.name}</p>}
                             <div className="popup-prices">
                                 {station.prices.regular && <span>Regular <b>{money(station.prices.regular)}</b></span>}
                                 {station.prices.premium && <span>Premium <b>{money(station.prices.premium)}</b></span>}
