@@ -21,11 +21,21 @@ function ResizeOnShow({ active }) {
     return null;
 }
 
-/** Al trazar una ruta, encuadra el mapa para que se vea completa. */
-function FitRoute({ path }) {
+/** Mientras navegas, el mapa sigue tu posición. */
+function FollowUser({ position, navigating }) {
     const map = useMap();
     useEffect(() => {
-        if (!path?.length) return;
+        if (!navigating || !position) return;
+        map.setView([position.lat, position.lon], Math.max(map.getZoom(), 16), { animate: true, duration: 0.5 });
+    }, [position, navigating, map]);
+    return null;
+}
+
+/** Al trazar una ruta, encuadra el mapa para que se vea completa. */
+function FitRoute({ path, navigating }) {
+    const map = useMap();
+    useEffect(() => {
+        if (!path?.length || navigating) return;
         // En celular el panel tapa la parte de abajo del mapa, así que se deja más margen
         const isPhone = window.matchMedia("(max-width: 900px)").matches;
         map.fitBounds(path, {
@@ -33,7 +43,7 @@ function FitRoute({ path }) {
             paddingBottomRight: [40, isPhone ? 220 : 60],
             maxZoom: 15,
         });
-    }, [path, map]);
+    }, [path, navigating, map]);
     return null;
 }
 
@@ -44,7 +54,7 @@ const youAreHere = L.divIcon({
     iconAnchor: [8, 8],
 });
 
-export default function MapView({ center, stations, fuel, average, selectedId, onSelect, onRoute, showMarker, active, route, routeStation }) {
+export default function MapView({ center, stations, fuel, average, selectedId, onSelect, onRoute, showMarker, active, route, routeStation, livePosition, navigating }) {
     return (
         <MapContainer center={[center.lat, center.lon]} zoom={12} scrollWheelZoom zoomControl={false} preferCanvas>
             <TileLayer
@@ -53,10 +63,16 @@ export default function MapView({ center, stations, fuel, average, selectedId, o
                 maxZoom={19}
             />
             {!routeStation && <Recenter center={center} zoom={12} />}
-            <FitRoute path={route?.path} />
+            <FitRoute path={route?.path} navigating={navigating} />
+            <FollowUser position={livePosition} navigating={navigating} />
             <ResizeOnShow active={active} />
 
-            {showMarker && <Marker position={[center.lat, center.lon]} icon={youAreHere} />}
+            {(livePosition || showMarker) && (
+                <Marker
+                    position={livePosition ? [livePosition.lat, livePosition.lon] : [center.lat, center.lon]}
+                    icon={youAreHere}
+                />
+            )}
 
             {route?.path && (
                 <Polyline

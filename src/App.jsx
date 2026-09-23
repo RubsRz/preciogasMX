@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Controls from "./components/Controls";
 import MapView from "./components/MapView";
 import StationList from "./components/StationList";
 import RoutePanel from "./components/RoutePanel";
+import NavBanner from "./components/NavBanner";
 import { getRoute } from "./lib/route";
+import { currentStep, distancePhrase, locateOnRoute, speak } from "./lib/nav";
 import { FUELS, distanceKm, formatDate, km, loadStations, money } from "./lib/stations";
 
 // Si el navegador no da ubicación, se arranca en el Centro Histórico de la CDMX
@@ -25,6 +27,11 @@ export default function App() {
     const [routeTo, setRouteTo] = useState(null); // estación a la que se trazó ruta
     const [route, setRoute] = useState(null);
     const [routeLoading, setRouteLoading] = useState(false);
+    const [navigating, setNavigating] = useState(false);
+    const [livePosition, setLivePosition] = useState(null);
+    const [muted, setMuted] = useState(false);
+    const spoken = useRef({ stepIndex: -1, phase: null });
+    const offRouteCount = useRef(0);
     const [theme, setTheme] = useState(() => localStorage.getItem("theme") ?? "dark");
 
     useEffect(() => {
@@ -65,10 +72,75 @@ export default function App() {
         return () => controller.abort();
     }, [routeTo, center]);
 
+    // Mientras navegas, el GPS actualiza la posición varias veces por segundo
+    useEffect(() => {
+        if (!navigating || !navigator.geolocation) return;
+        const id = navigator.geolocation.watchPosition(
+            ({ coords }) => setLivePosition({ lat: coords.latitude, lon: coords.longitude }),
+            () => {},
+            { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 },
+        );
+        return () => navigator.geolocation.clearWatch(id);
+    }, [navigating]);
+
+    // Dónde voy en la ruta, qué maniobra sigue y cuánto falta
+    const nav = useMemo(() => {
+        if (!navigating || !route?.path || !livePosition) return null;
+        const located = locateOnRoute(route.path, livePosition);
+        const step = currentStep(route.steps ?? [], route.path, located.index);
+        return { ...located, ...step };
+    }, [navigating, route, livePosition]);
+
+    const arrived = Boolean(nav && routeTo && nav.remainingMeters < 40);
+
+    // Avisos por voz: uno al acercarse a la maniobra y otro justo antes
+    useEffect(() => {
+        if (!nav?.next || muted || arrived) return;
+        const stepIndex = route.steps.indexOf(nav.next);
+        const phase = nav.metersToNext < 60 ? "now" : nav.metersToNext < 300 ? "soon" : null;
+        if (!phase) return;
+        if (spoken.current.stepIndex === stepIndex && spoken.current.phase === phase) return;
+        if (spoken.current.stepIndex === stepIndex && spoken.current.phase === "now") return;
+        spoken.current = { stepIndex, phase };
+        speak(phase === "now" ? nav.next.instruction : `${distancePhrase(nav.metersToNext)}, ${nav.next.instruction}`);
+    }, [nav, muted, arrived, route]);
+
+    useEffect(() => {
+        if (arrived && !muted) speak("Llegaste a tu destino");
+    }, [arrived, muted]);
+
+    // Si te sales de la ruta, se recalcula desde donde estás
+    useEffect(() => {
+        if (!navigating || !nav || arrived) return;
+        if (nav.offRoute < 70) {
+            offRouteCount.current = 0;
+            return;
+        }
+        offRouteCount.current += 1;
+        if (offRouteCount.current < 3) return;
+        offRouteCount.current = 0;
+        setRouteLoading(true);
+        getRoute(livePosition, routeTo)
+            .then(setRoute)
+            .finally(() => setRouteLoading(false));
+    }, [nav, navigating, arrived, livePosition, routeTo]);
+
+    function stopNavigation() {
+        setNavigating(false);
+        setLivePosition(null);
+        spoken.current = { stepIndex: -1, phase: null };
+        if ("speechSynthesis" in window) speechSynthesis.cancel();
+    }
+
     function startRoute(station) {
         setRouteTo(station);
         setSelectedId(station.id);
-        setSheetOpen(false); // en celular, deja ver el mapa
+        setSheetOpen(true); // en celular, muestra la tarjeta de la ruta
+    }
+
+    function exitRoute() {
+        stopNavigation();
+        setRouteTo(null);
     }
 
     // Estaciones dentro del radio, con distancia y precio del combustible elegido
@@ -152,11 +224,15 @@ export default function App() {
                     >
                         <span className="sheet-grip" aria-hidden="true" />
                         <span className="sheet-label">
-                            {routeTo
-                                ? "Ruta"
-                                : sheetOpen
-                                  ? "Ver el mapa"
-                                  : `${listed.length} estaciones · desde ${stats ? money(stats.min) : "…"}`}
+                            {navigating && nav
+                                ? `Faltan ${km(nav.remainingMeters / 1000)} · ver los pasos`
+                                : routeTo
+                                  ? sheetOpen
+                                      ? "Ver el mapa"
+                                      : "Ver la ruta"
+                                  : sheetOpen
+                                    ? "Ver el mapa"
+                                    : `${listed.length} estaciones · desde ${stats ? money(stats.min) : "…"}`}
                         </span>
                     </button>
                     {!routeTo && (
@@ -225,7 +301,15 @@ export default function App() {
                             route={route}
                             fuel={fuel}
                             loading={routeLoading}
-                            onExit={() => setRouteTo(null)}
+                            navigating={navigating}
+                            nav={nav}
+                            arrived={arrived}
+                            onStart={() => {
+                                setNavigating(true);
+                                setSheetOpen(false); // al arrancar, el mapa manda
+                            }}
+                            onStop={stopNavigation}
+                            onExit={exitRoute}
                         />
                     )}
 
@@ -239,6 +323,15 @@ export default function App() {
                 </section>
 
                 <div className="map-wrap">
+                    {navigating && (
+                        <NavBanner
+                            nav={nav}
+                            arrived={arrived}
+                            muted={muted}
+                            onMute={() => setMuted((value) => !value)}
+                            onStop={stopNavigation}
+                        />
+                    )}
                     {data && (
                         <MapView
                             center={center}
@@ -252,6 +345,8 @@ export default function App() {
                             active={sheetOpen}
                             route={route}
                             routeStation={routeTo}
+                            livePosition={livePosition}
+                            navigating={navigating}
                         />
                     )}
                     {!routeTo && (
